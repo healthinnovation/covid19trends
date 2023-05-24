@@ -32,5 +32,5 @@ weekly_deaths = daily_deaths |>
   group_by(week_start) |>
   summarise(deaths = sum(deaths), .groups = "drop")
 
-output_path = "data/interim/deaths.csv"
+output_path = "data/interim/weekly/deaths.csv"
 readr::write_csv(weekly_deaths, output_path)

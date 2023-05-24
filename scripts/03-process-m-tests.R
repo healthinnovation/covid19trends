@@ -71,5 +71,22 @@ weekly_tests = daily_tests |>
   group_by(week_start) |>
   summarise(m_tests = sum(m_tests), .groups = "drop")
 
-output_path = "data/interim/m-tests.csv"
-readr::write_csv(weekly_tests, output_path)
+weekly_path = "data/interim/weekly/m-tests.csv"
+readr::write_csv(weekly_tests, weekly_path)
+
+daily_tests_type = tests |>
+  mutate(type = stringr::str_to_sentence(tipo_muestra)) |>
+  group_by(type, test_date) |>
+  summarise(tests = n(), .groups = "drop") |>
+  complete(type, test_date = seq(min(test_date), max(test_date), by = "day")) |>
+  replace_na(list(tests = 0))
+
+weekly_tests_type = daily_tests_type |>
+  mutate(
+    week_start = lubridate::floor_date(test_date, unit = "week", week_start = 7)
+  ) |>
+  group_by(type, week_start) |>
+  summarise(tests = sum(tests), .groups = "drop")
+
+weekly_type_path = "data/interim/weekly-type/m-tests-type.csv"
+readr::write_csv(weekly_tests_type, weekly_type_path)
