@@ -29,8 +29,8 @@ weekly_long = weekly |>
 
 ```{r}
 facet_names = c(
-  "cases" = "Casos positivos", "deaths" = "Fallecimientos",
-  "m_tests" = "Pruebas moleculares", "nm_tests" = "Pruebas no moleculares"
+  "cases" = "Positive cases", "deaths" = "Deaths",
+  "m_tests" = "Molecular tests", "nm_tests" = "Non-molecular tests"
 )
 ```
 
@@ -57,9 +57,9 @@ weekly_plot = weekly_plot_base +
   ) +
   labs(
     y = NULL, x = NULL,
-    title = "COVID-19: Conteo de casos positivos, fallecimientos, pruebas moleculares y no moleculares",
-    subtitle = "SE 12 de 2020 a la SE 17 de 2023",
-    caption = "Fuente: Plataforma Nacional de Datos Abiertos"
+    title = "COVID-19: Count of positive cases, deaths, molecular and non-molecular tests",
+    subtitle = "EW 12, 2020 to EW 17, 2023",
+    caption = "Source: Plataforma Nacional de Datos Abiertos"
   )
 ```
 
@@ -71,7 +71,7 @@ weekly_plot
 
 ```{r}
 #| eval: false 
-ggsave(weekly_plot, "figures/weekly-plot.png", width = 12, height = 6)
+ggsave("figures/weekly-plot.png", weekly_plot, width = 10, height = 9)
 ```
 
 ## Weekly counts by type of test plots
@@ -96,7 +96,15 @@ weekly_type = weekly_long |>
     week_start >= as.Date(min(weekly_long$week_start)), 
     week_start <= as.Date(max(weekly_long$week_start))
   ) |> 
-  arrange(type, week_start)
+  arrange(type, week_start) |> 
+  mutate(
+    type = case_when(
+      type == "Quimioluminiscencia" ~ "Serológica",
+      .default = as.character(type)
+    )
+  ) |> 
+  group_by(type, week_start) |> 
+  summarise(tests = sum(tests), .groups = "drop")
 ```
 
 ```{r}
@@ -108,8 +116,15 @@ weekly_type_plot_base = weekly_type |>
 ```{r}
 weekly_type_plot = weekly_type_plot_base +
   scale_x_date(date_breaks = "5 months", date_labels = "%b, %Y") +
-  scale_y_continuous(labels = scales::label_comma(), expand = c(0, 0)) +
-  ggsci::scale_fill_npg() +
+  scale_y_continuous(
+    labels = scales::label_comma(), expand = c(0, 0), 
+    breaks = c(NULL, NULL, 0, 100000, 200000)
+  ) +
+  ggsci::scale_fill_npg(
+    labels = c(
+      "Antigen", "Molecular", "Serological*"
+    )
+  ) +
   theme_minimal() +
   theme(
     panel.grid.major.y = element_blank(),
@@ -119,9 +134,9 @@ weekly_type_plot = weekly_type_plot_base +
   ) +
   labs(
     y = NULL, x = NULL, fill = NULL,
-    title = "COVID-19: Conteo de pruebas registradas con resultados verificados por tipo de prueba",
-    subtitle = "SE 12 de 2020 a la SE 17 de 2023",
-    caption = "Fuente: Plataforma Nacional de Datos Abiertos"
+    title = "COVID-19: Count of registered tests with verified results by test type",
+    subtitle = "EW 12, 2020 to EW 17, 2023",
+    caption = "Source: Plataforma Nacional de Datos Abiertos\n*Includes chemiluminescence immunoassay"
   )
 ```
 
@@ -131,3 +146,7 @@ weekly_type_plot = weekly_type_plot_base +
 weekly_type_plot
 ```
 
+```{r}
+#| eval: false 
+ggsave("figures/weekly-type-plot.png", weekly_type_plot, width = 10, height = 6)
+```
