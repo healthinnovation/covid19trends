@@ -1,22 +1,33 @@
 library(dplyr)
 library(tidyr)
 
-input_path = "data/raw/TB_F100_SICOVID.csv"
-
-col_names = c(
+input_path <- "data/raw/TB_F100_SICOVID.csv"
+col_names <- c(
   "fecha_prueba", "id_tipo_prueba", "id_resultado_prueba", "id_ubigeo_prueba"
 )
-
-tests_raw = data.table::fread(
+tests_raw <- data.table::fread(
   input_path, select = list(character = col_names), na.strings = "",
   nThread = 4
 )
-
-tests = tests_raw |>
+tests <- tests_raw |>
   na.omit() |>
   mutate(test_date = as.Date(fecha_prueba, format = "%d/%m/%Y")) |>
   select(-fecha_prueba)
+rm(tests_raw)
 
+col_names <- c(
+  "fecha_prueba", "id_tipo_prueba", "id_resultado_prueba", "id_ubigeo_prueba"
+)
+tests_raw <- data.table::fread(
+  "data/raw/TB_F100_RESULTADOPRUEBA.csv", sep = ";",
+  # select = list(character = col_names),
+  na.strings = "",
+  nThread = 4
+)
+tests <- tests_raw |>
+  na.omit() |>
+  mutate(test_date = as.Date(fecha_prueba, format = "%d/%m/%Y")) |>
+  select(-fecha_prueba)
 rm(tests_raw)
 
 # Fecha mínima: 2020-03-15, Fecha máxima: 2023-05-19

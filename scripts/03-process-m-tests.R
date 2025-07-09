@@ -1,22 +1,20 @@
 library(dplyr)
 library(tidyr)
 
-input_path = "data/raw/pm24Abr2023.csv"
-
-char_cols = c(
+input_path <- "data/raw/pm24Abr2023.csv"
+char_cols <- c(
   "FECHA_MUESTRA", "UBIGEO_PACIENTE", "DEPARTAMENTO_PACIENTE",
   "PROVINCIA_PACIENTE", "DISTRITO_PACIENTE", "DEPARTAMENTO_MUESTRA",
   "PROVINCIA_MUESTRA","DISTRITO_MUESTRA", "TIPO_MUESTRA", "RESULTADO"
 )
 
-tests_raw = data.table::fread(
+tests_raw <- data.table::fread(
   input_path, sep = "|", nrows = 10539887,
   select = list(character = char_cols, integer = c("Edad")), na.strings = "",
   fill = TRUE, nThread = 6
 )
-names(tests_raw) = tolower(names(tests_raw))
-
-tests = tests_raw |>
+names(tests_raw) <- tolower(names(tests_raw))
+tests <- tests_raw |>
   na.omit() |>
   filter(
     between(edad, 0, 123),
@@ -52,8 +50,17 @@ tests = tests_raw |>
     )
   ) |>
   select(-c(fecha_muestra, resultado))
-
 rm(tests_raw)
+
+tests_20240201_raw <- data.table::fread(
+  "data/raw/pm27Sep2023.csv", sep = ";",
+  # select = list(character = char_cols, integer = c("Edad")),
+  na.strings = "",
+  # fill = TRUE,
+  nThread = 6
+)
+
+names(tests_20240201_raw) <- tolower(names(tests_20240201_raw))
 
 # TODO:Fecha mínima: 2020-01-01, Fecha máxima: 2023-04-24
 

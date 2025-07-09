@@ -13,11 +13,386 @@ library(ggplot2)
 library(ggstream)
 ```
 
+```{r}
+#| eval: false
+npg_pal = ggsci::pal_npg()(9)
+npg_pal
+scales::show_col(npg_pal)
+```
+
+```{r}
+#| eval: false
+npg_pal_alpha = ggsci::pal_npg(alpha = 0.4)(9)
+npg_pal_alpha
+scales::show_col(npg_pal_alpha)
+```
+
+```{r}
+#| eval: false
+nejm_pal = ggsci::pal_nejm()(8)
+nejm_pal
+scales::show_col(nejm_pal)
+```
+
+```{r}
+#| eval: false
+nejm_pal_alpha = ggsci::pal_nejm(alpha = 0.4)(8)
+nejm_pal_alpha
+scales::show_col(nejm_pal_alpha)
+```
+
+## Figure 1A - Total number of positive cases and deaths by province
+
+```{r}
+cases <- readr::read_csv("data/interim/weekly/cases.csv", col_types = "cDi")
+deaths <- readr::read_csv("data/interim/weekly/deaths.csv", col_types = "cDi")
+```
+
+```{r}
+library(sf)
+data("Peru", package = "innovar")
+districts = Peru |> 
+  st_drop_geometry() |> 
+  select(ubigeo, department = dep, province = prov, district = distr)
+```
+
+```{r}
+districts_counts = cases |> 
+  inner_join(deaths, by = c("ubigeo", "week_start")) |> 
+  left_join(districts, by = "ubigeo")
+```
+
+```{r}
+population_raw = readr::read_csv("data/raw/population.csv", col_types = "cii")
+population = population_raw |> 
+  filter(year == 2020) |> 
+  select(-year)
+```
+
+```{r}
+provinces_counts_waves = districts_counts |> 
+  mutate(
+    wave = case_when(
+      between(
+        week_start, as.Date(min(week_start)), as.Date("2020-12-20")
+      ) ~ "1st wave",
+      between(
+        week_start, as.Date("2020-12-27"), as.Date("2021-12-12")
+      ) ~ "2nd wave",
+      between(
+        week_start, as.Date("2021-12-19"), as.Date("2022-06-05")
+      ) ~ "3th wave",
+      between(
+        week_start, as.Date("2022-06-12"), as.Date("2022-10-23")
+      ) ~ "4th wave",
+      between(
+        week_start, as.Date("2022-10-30"), as.Date(max(week_start))
+      ) ~ "5th wave"
+    )
+  ) |> 
+  mutate(
+    wave = factor(
+      wave, levels = c("1st wave", "2nd wave", "3th wave", "4th wave", "5th wave")
+    )
+  ) |> 
+  group_by(department, province, wave) |> 
+  summarise(cases = sum(cases), deaths = sum(deaths), .groups = "drop") 
+```
+
+```{r}
+provinces_counts = provinces_counts_waves |> 
+  group_by(department, province) |> 
+  summarise(cases = sum(cases), deaths = sum(deaths), .groups = "drop")
+```
+
+```{r}
+provinces_population = districts |> 
+  inner_join(population, by = "ubigeo") |> 
+  group_by(department, province) |> 
+  summarise(population = sum(population), .groups = "drop")
+```
+
+```{r}
+provinces_rates = provinces_counts |> 
+  left_join(provinces_population, by = c("department", "province")) |> 
+  mutate(across(cases:deaths, \(x) 100000 * x / population), .keep = "unused")
+```
+
+```{r}
+departments_counts = provinces_counts |> 
+  group_by(department) |> 
+  summarise(cases = sum(cases), deaths = sum(deaths), .groups = "drop")
+```
+
+```{r}
+departments_population = provinces_population |> 
+  group_by(department) |> 
+  summarise(population = sum(population), .groups = "drop")
+```
+
+```{r}
+departments_rates = departments_counts |> 
+  left_join(departments_population, by = c("department")) |> 
+  mutate(across(cases:deaths, \(x) 100000 * x / population), .keep = "unused")
+```
+
+```{r}
+library(biscale)
+provinces_rates_bivariate = bi_class(
+  provinces_rates, x = cases, y = deaths, style = "jenks", dim = 3
+)
+```
+
+```{r}
+provinces_sf = Peru |> 
+  group_by(province = prov) |> 
+  summarise() |> 
+  ungroup() |> 
+  st_as_sf()
+```
+
+```{r}
+provinces_rates_bivariate_sf = provinces_rates_bivariate |> 
+  left_join(provinces_sf, by = "province") |> 
+  st_as_sf()
+```
+
+```{r}
+provinces_rates_bivariate_map = provinces_rates_bivariate_sf |>
+  ggplot() + 
+  geom_sf(aes(fill = bi_class), show.legend = FALSE) +
+  bi_scale_fill(pal = "GrPink", dim = 3) +
+  theme_void() 
+  # labs(
+  #   fill = "Cases per 100,000 pop.", 
+  #   title = "Cumulative COVID-19 incidence and death rate\nby province",
+  #   subtitle = "EW 10, 2020 to EW 03, 2024"
+  #   # caption = "Source: Plataforma Nacional de Datos Abiertos"
+  # )
+```
+
+```{r}
+legend_bivariate = bi_legend(
+    pal = "GrPink", dim = 3, xlab = "Higher incidence rate ", 
+    ylab = "Higher death rate ", size = 8
+  ) +
+  theme(
+    panel.background = element_rect(fill = "transparent"),
+    plot.background = element_rect(fill = "transparent", color = NA)
+  )
+```
+
+```{r}
+library(cowplot)
+```
+
+```{r}
+provinces_rates_bivariate_map_plot_raw = ggdraw() +
+  draw_plot(provinces_rates_bivariate_map, height = 1.15) +
+  draw_plot(legend_bivariate, 0.12, 0.05, 0.28, 0.28) 
+
+provinces_rates_bivariate_map_plot <- provinces_rates_bivariate_map_plot_raw |> 
+  ggplotify::as.ggplot() +
+  labs(
+    fill = "Cases per 100,000 pop.",
+    title = "Cumulative COVID-19 incidence and death rate\nby province",
+    subtitle = "EW 10, 2020 to EW 03, 2024"
+    # caption = "Source: Plataforma Nacional de Datos Abiertos"
+  )
+
+provinces_rates_bivariate_map_plot
+```
+
+```{r}
+ggsave(
+  "figures/provinces_rates_bivariate_map_plot.png",
+  provinces_rates_bivariate_map_plot, 
+  width = 6, height = 7, bg = "transparent"
+)
+```
+
+### Waves
+
+```{r}
+provinces_rates_waves_bivariate = bi_class(
+  provinces_counts_waves, x = cases, y = deaths, style = "jenks", dim = 3
+)
+```
+
+```{r}
+provinces_rates_waves_bivariate_sf = provinces_rates_waves_bivariate |> 
+  left_join(provinces_sf, by = "province") |> 
+  st_as_sf()
+```
+
+```{r}
+provinces_rates_waves_bivariate_map = provinces_rates_waves_bivariate_sf |> 
+  ggplot() + 
+  facet_wrap(~ wave, ncol = 3) + 
+  geom_sf(aes(fill = bi_class), show.legend = FALSE) +
+  bi_scale_fill(pal = "GrPink", dim = 3) +
+  theme_void() +
+  labs(
+    fill = "Cases per 100,000 pop.", 
+    title = "Cumulative COVID-19 positive cases by province\nin every epidemic wave",
+    subtitle = "EW 12, 2020 to EW 17, 2023",
+    caption = "Source: Plataforma Nacional de Datos Abiertos"
+  )
+```
+
+```{r}
+provinces_rates_waves_bivariate_map_plot = ggdraw() +
+  draw_plot(provinces_rates_waves_bivariate_map) +
+  draw_plot(legend_bivariate, 0.65, 0.12, 0.25, 0.25)
+```
+
+```{r}
+ggsave(
+  "figures/provinces_rates_waves_bivariate_map_plot.png",
+  provinces_rates_waves_bivariate_map_plot, 
+  width = 8, height = 7, bg = "transparent"
+)
+```
+
+## Figure 1B - Incidence rates over weeks by department
+
+```{r}
+departments_counts_weekly = districts_counts |> 
+  group_by(department, week_start) |> 
+  summarise(cases = sum(cases), deaths = sum(deaths), .groups = "drop")
+```
+
+```{r}
+departments_rates_weekly = departments_counts_weekly |> 
+  left_join(departments_population, by = "department") |> 
+  mutate(across(cases:deaths, \(x) 100000 * x / population), .keep = "unused") |>
+  mutate(
+    across(
+      cases:deaths, 
+      \(x) cut(
+        x, breaks = BAMMtools::getJenksBreaks(x, k = 5), include.lowest = TRUE,
+        dig.lab = 5
+      ),
+      .names = "{.col}_group"
+    )
+  )
+```
+
+```{r}
+departments_rates_weekly_heat = departments_rates_weekly |> 
+  ggplot(aes(reorder(department, cases), week_start, fill = cases_group)) +
+  geom_tile() +
+  coord_flip() +
+  scale_y_date(date_breaks = "4 months", date_labels = "%b, %Y", expand = c(0, 0)) +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_fill_brewer() +
+  labs(
+    y = "Epidemiological Week", x = "Departments", 
+    fill = "Positive cases\nper 100,000 people",
+    title = "Weekly COVID-19 positive cases by department",
+    subtitle = "EW 18, 2020 to EW 17, 2023",
+    caption = "Source: Plataforma Nacional de Datos Abiertos"
+  ) +
+  theme(
+    legend.position = "top",
+    panel.background = element_rect(fill = "transparent"),
+    plot.background = element_rect(fill = "transparent", color = NA),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.background = element_rect(fill = "transparent")
+  )
+```
+
+```{r}
+ggsave(
+  "figures/departments_rates_weekly_heat.png", departments_rates_weekly_heat, 
+  height = 6, width = 9, bg = "transparent"
+)
+```
+
+## Figure 1C - Vaccination over weeks
+
+```{r}
+vaccinations = readr::read_csv(
+  "data/interim/weekly/vaccinations.csv", col_types = "cDci"
+)
+```
+
+```{r}
+vaccinations_weekly = vaccinations |> 
+  group_by(week_start, dosis) |> 
+  summarise(vacc = sum(vacc), .groups = "drop")
+```
+
+```{r}
+vaccinations_weekly_stream = vaccinations_weekly |> 
+  filter(between(week_start, as.Date("2021-01-31"), max(cases$week_start))) |>
+  ggplot(aes(week_start, vacc, fill = dosis)) +
+  geom_stream(type = "ridge") +
+  scale_x_date(date_breaks = "7 months", date_labels = "%b, %Y") +
+  scale_y_continuous(
+    labels = scales::label_comma(), expand = c(0, 0),
+    breaks = c(NULL, NULL, 0, 500000, 1000000)
+  ) +
+  ggsci::scale_fill_npg() +
+  theme_minimal() +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    legend.position = "bottom"
+  ) +
+  labs(
+    y = NULL, x = NULL, fill = NULL,
+    title = "Weekly COVID-19 vaccine doses administered by number of doses recieved",
+    subtitle = "EW 18, 2020 to EW 17, 2023",
+    caption = "Source: Plataforma Nacional de Datos Abiertos"
+  )
+```
+
+```{r}
+#| eval: false 
+ggsave(
+  "figures/vaccinations_weekly_stream.png", vaccinations_weekly_stream, 
+  width = 10, height = 6
+)
+```
+
 ## Weekly counts plots
 
 ```{r}
-weekly_paths = fs::dir_ls("data/interim/weekly")
-weekly_list = purrr::map(weekly_paths, \(x) readr::read_csv(x, col_types = "Di"))
+nm_tests = readr::read_csv(
+  "data/interim/weekly-type/nm-tests-type.csv", col_types = "cDi"
+)
+m_tests = readr::read_csv(
+  "data/interim/weekly-type/m-tests-type.csv", col_types = "cDi"
+)
+```
+
+```{r}
+cases_weekly = cases |> 
+  group_by(week_start) |> 
+  summarise(cases = sum(cases), .groups = "drop")
+
+deaths_weekly = deaths |> 
+  group_by(week_start) |> 
+  summarise(deaths = sum(deaths), .groups = "drop")
+
+# nm_tests_weekly = nm_tests |> 
+#   group_by(week_start) |> 
+#   summarise(nm_tests = sum(tests), .groups = "drop")
+# 
+# m_tests_weekly = m_tests |> 
+#   group_by(week_start) |> 
+#   summarise(m_tests = sum(tests), .groups = "drop")
+```
+
+```{r}
+weekly_list = list(
+  cases_weekly, deaths_weekly
+  # nm_tests_weekly, m_tests_weekly
+)
+
 weekly = purrr::reduce(weekly_list, \(x, y) inner_join(x, y, by = "week_start"))
 ```
 
@@ -29,8 +404,8 @@ weekly_long = weekly |>
 
 ```{r}
 facet_names = c(
-  "cases" = "Positive cases", "deaths" = "Deaths",
-  "m_tests" = "Molecular tests", "nm_tests" = "Non-molecular tests"
+  "cases" = "Positive cases", "deaths" = "Deaths"
+  # "m_tests" = "Molecular tests", "nm_tests" = "Non-molecular tests"
 )
 ```
 
@@ -57,9 +432,9 @@ weekly_plot = weekly_plot_base +
   ) +
   labs(
     y = NULL, x = NULL,
-    title = "COVID-19: Count of positive cases, deaths, molecular and non-molecular tests",
-    subtitle = "EW 12, 2020 to EW 17, 2023",
-    caption = "Source: Plataforma Nacional de Datos Abiertos"
+    title = "Weekly COVID-19 positive cases and deaths",
+    subtitle = "EW 10, 2020 to EW 03, 2024"
+    # caption = "Source: Plataforma Nacional de Datos Abiertos"
   )
 ```
 
@@ -71,27 +446,17 @@ weekly_plot
 
 ```{r}
 #| eval: false 
-ggsave("figures/weekly-plot.png", weekly_plot, width = 10, height = 9)
+ggsave("figures/weekly-plot.png", weekly_plot, width = 10, height = 7)
 ```
 
 ## Weekly counts by type of test plots
-
-```{r}
-weekly_type_paths = fs::dir_ls("data/interim/weekly-type/")
-weekly_type_list = purrr::map(
-  weekly_type_paths, \(x) readr::read_csv(x, col_types = "cDi")
-)
-names(weekly_type_list) = names(weekly_type_list) |> 
-  fs::path_file() |> 
-  fs::path_ext_remove()
-```
 
 ```{r}
 weekly_type = weekly_long |> 
   filter(name == "m_tests") |> 
   select(type = name, week_start, tests = value) |> 
   mutate(type = "Molecular") |> 
-  bind_rows(weekly_type_list$`nm-tests-type`) |> 
+  bind_rows(nm_tests) |> 
   filter(
     week_start >= as.Date(min(weekly_long$week_start)), 
     week_start <= as.Date(max(weekly_long$week_start))
@@ -150,3 +515,836 @@ weekly_type_plot
 #| eval: false 
 ggsave("figures/weekly-type-plot.png", weekly_type_plot, width = 10, height = 6)
 ```
+
+## Plot A
+
+```{r}
+# cases_deaths = cases |> 
+#   inner_join(deaths, by = c("ubigeo", "week_start")) |> 
+#   left_join(population, by = c("ubigeo"))
+```
+
+```{r}
+cases_deaths_area_raw = cases |> 
+  inner_join(deaths, by = c("ubigeo", "week_start")) |> 
+  left_join(districts, by = c("ubigeo")) |> 
+  mutate(
+    area = ifelse(
+      province %in% c("LIMA", "CALLAO"), "Lima metropolitan area", 
+      "Other parts of the country"
+    )
+  ) |> 
+  group_by(area, week_start) |> 
+  summarise(cases = sum(cases), deaths = sum(deaths), .groups = "drop")
+```
+
+```{r}
+population_area = population |> 
+  inner_join(districts, by = "ubigeo") |> 
+  mutate(
+    area = ifelse(
+      province %in% c("LIMA", "CALLAO"), "Lima metropolitan area", 
+      "Other parts of the country"
+    )
+  ) |>  
+  group_by(area) |> 
+  summarise(population = sum(population), .groups = "drop")
+```
+
+```{r}
+cases_deaths_area = cases_deaths_area_raw |> 
+  left_join(population_area, by = "area") |> 
+  mutate(
+    cases_100k = 100000 * cases / population,
+    deaths_100k = 100000 * deaths / population
+  )
+```
+
+```{r}
+cases_deaths_area_long = cases_deaths_area |> 
+  tidyr::pivot_longer(c(cases_100k, deaths_100k))
+```
+
+```{r}
+weekly_area_facets = c(
+  "cases_100k" = "Positive cases", "deaths_100k" = "Deaths"
+)
+```
+
+```{r}
+weekly_area_plot_base = cases_deaths_area_long |> 
+  ggplot(aes(week_start, value, fill = area)) + 
+  facet_wrap(
+    ~name, nrow = 2, scales = "free_y", 
+    labeller = labeller(name = weekly_area_facets),
+    strip.position = "right"
+  ) +
+  geom_area()
+```
+
+```{r}
+weekly_area_plot_base
+```
+
+```{r}
+weekly_area_plot = weekly_area_plot_base +
+  scale_x_date(date_breaks = "5 months", date_labels = "%b, %Y") +
+  scale_y_continuous(labels = scales::label_comma(), expand = c(0, 0)) +
+  theme_minimal() +
+  theme(
+    axis.line.x = element_line(color = "lightgray"),
+    axis.ticks.x = element_line(color = "lightgray"),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    legend.position = "top"
+  ) +
+  # scale_fill_manual(values = c("#E64B35FF", "#00A087FF")) +
+  scale_fill_manual(values = c("#537188", "#D6E8DB")) +
+  labs(
+    y = NULL, x = NULL, fill = NULL,
+    title = "COVID-19: Positive cases and deaths per 100,000 people by area",
+    subtitle = "EW 12, 2020 to EW 17, 2023",
+    caption = "Source: Plataforma Nacional de Datos Abiertos"
+  ) 
+  # geom_vline(xintercept = as.Date("2020-12-27")) +
+  # geom_vline(xintercept = as.Date("2021-12-19")) +
+  # geom_vline(xintercept = as.Date("2022-06-12")) +
+  # geom_vline(xintercept = as.Date("2022-10-30"))
+```
+
+```{r}
+weekly_area_plot
+```
+
+```{r}
+#| eval: false 
+ggsave("figures/cases-deaths-area.png", weekly_area_plot, width = 10, height = 6)
+```
+
+## Plot B
+
+### Departments
+
+```{r}
+departments = districts |> 
+  inner_join(population, by = "ubigeo") |> 
+  group_by(department) |> 
+  summarise(population = sum(population))
+```
+
+```{r}
+ubigeo_cases_deaths = cases |> 
+  inner_join(deaths, by = c('ubigeo', 'week_start')) |> 
+  left_join(districts, by = "ubigeo") |> 
+  relocate(department:district, .before = everything()) |> 
+  rename(positive_cases = cases)
+
+readr::write_csv(
+  ubigeo_cases_deaths, "data/processed/weekly-cases-deaths-ubigeo.csv", na = ""
+)
+```
+
+
+```{r}
+waves_departments = cases |> 
+  mutate(
+    wave = case_when(
+      between(
+        week_start, as.Date(min(week_start)), as.Date("2020-12-20")
+      ) ~ "1st wave",
+      between(
+        week_start, as.Date("2020-12-27"), as.Date("2021-12-12")
+      ) ~ "2nd wave",
+      between(
+        week_start, as.Date("2021-12-19"), as.Date("2022-06-05")
+      ) ~ "3th wave",
+      between(
+        week_start, as.Date("2022-06-12"), as.Date("2022-10-23")
+      ) ~ "4th wave",
+      between(
+        week_start, as.Date("2022-10-30"), as.Date(max(week_start))
+      ) ~ "5th wave"
+    )
+  ) |> 
+  mutate(
+    wave = factor(
+      wave, levels = c("1st wave", "2nd wave", "3th wave", "4th wave", "5th wave")
+    )
+  ) |> 
+  left_join(districts, by = "ubigeo") |> 
+  group_by(wave, department) |> 
+  summarise(cases = sum(cases), .groups = "drop") |> 
+  left_join(departments, by = "department") |> 
+  mutate(cases_100k = 100000 * cases / population)
+```
+
+```{r}
+departments_poly = Peru |> 
+  group_by(department = dep) |> 
+  summarise() |> 
+  ungroup() |> 
+  st_as_sf()
+```
+
+```{r}
+waves_departments_poly = waves_departments |> 
+  left_join(departments_poly, by = "department") |> 
+  st_as_sf()
+```
+
+```{r}
+waves_departments_plot_base = ggplot(data = waves_departments_poly) + 
+  facet_wrap(~ wave, ncol = 3) + 
+  geom_sf(aes(fill = log(cases_100k + 1))) +
+  # geom_sf(aes(fill = cases_100k)) +
+  scale_fill_distiller(palette = "GnBu", direction = 1)
+```
+
+```{r}
+waves_departments_plot_base
+```
+
+```{r}
+waves_departments_plot = waves_departments_plot_base +
+  theme_void() +
+  theme(legend.position = "bottom") +
+  labs(
+    fill = "Cases per 100,000 pop.\n(Log scale)", 
+    title = "COVID-19: Cumulative cases per 100,000 people by\ndepartment in every epidemic wave",
+    subtitle = "EW 12, 2020 to EW 17, 2023",
+    caption = "Source: Plataforma Nacional de Datos Abiertos"
+  ) 
+```
+
+```{r}
+waves_departments_plot
+```
+
+```{r}
+#| eval: false 
+ggsave("figures/waves-departments.png", waves_departments_plot, width = 5, height = 6)
+```
+
+### Provinces
+
+```{r}
+waves_provinces = cases |> 
+  mutate(
+    wave = case_when(
+      between(
+        week_start, as.Date(min(week_start)), as.Date("2020-12-20")
+      ) ~ "1st wave",
+      between(
+        week_start, as.Date("2020-12-27"), as.Date("2021-12-12")
+      ) ~ "2nd wave",
+      between(
+        week_start, as.Date("2021-12-19"), as.Date("2022-06-05")
+      ) ~ "3th wave",
+      between(
+        week_start, as.Date("2022-06-12"), as.Date("2022-10-23")
+      ) ~ "4th wave",
+      between(
+        week_start, as.Date("2022-10-30"), as.Date(max(week_start))
+      ) ~ "5th wave"
+    )
+  ) |> 
+  mutate(
+    wave = factor(
+      wave, levels = c("1st wave", "2nd wave", "3th wave", "4th wave", "5th wave")
+    )
+  ) |> 
+  left_join(districts, by = "ubigeo") |> 
+  group_by(wave, province) |> 
+  summarise(cases = sum(cases), .groups = "drop") |> 
+  left_join(provinces_population, by = c("province")) |> 
+  mutate(cases_100k = 100000 * cases / population)
+```
+
+```{r}
+waves_provinces_poly = waves_provinces |> 
+  left_join(provinces_sf, by = "province") |> 
+  st_as_sf()
+```
+
+```{r}
+waves_provinces_plot_base = ggplot(data = waves_provinces_poly) + 
+  facet_wrap(~ wave, ncol = 3) + 
+  geom_sf(aes(fill = cases_100k)) +
+  scale_fill_distiller(
+    palette = "GnBu", direction = 1, trans = "log1p", 
+    breaks = \(x) round(expm1(scales::breaks_extended(5)(log1p(x))))
+  )
+```
+
+```{r}
+waves_provinces_plot_base
+```
+
+```{r}
+waves_provinces_plot = waves_provinces_plot_base +
+  theme_void() +
+  theme(legend.position = "bottom") +
+  labs(
+    fill = "Cases per 100,000 pop.", 
+    title = "COVID-19: Cumulative cases per 100,000 people by\nprovince in every epidemic wave",
+    subtitle = "EW 12, 2020 to EW 17, 2023",
+    caption = "Source: Plataforma Nacional de Datos Abiertos"
+  ) 
+```
+
+```{r}
+waves_provinces_plot
+```
+
+```{r}
+#| eval: false 
+ggsave("figures/waves-provinces.png", waves_provinces_plot, width = 5, height = 6)
+```
+
+```{r}
+provinces_waves_groups = cases |> 
+  mutate(
+    wave = case_when(
+      between(
+        week_start, as.Date(min(week_start)), as.Date("2020-12-20")
+      ) ~ "1st wave",
+      between(
+        week_start, as.Date("2020-12-27"), as.Date("2021-12-12")
+      ) ~ "2nd wave",
+      between(
+        week_start, as.Date("2021-12-19"), as.Date("2022-06-05")
+      ) ~ "3th wave",
+      between(
+        week_start, as.Date("2022-06-12"), as.Date("2022-10-23")
+      ) ~ "4th wave",
+      between(
+        week_start, as.Date("2022-10-30"), as.Date(max(week_start))
+      ) ~ "5th wave"
+    )
+  ) |> 
+  mutate(
+    wave = factor(
+      wave, levels = c("1st wave", "2nd wave", "3th wave", "4th wave", "5th wave")
+    )
+  ) |> 
+  left_join(districts, by = "ubigeo") |> 
+  group_by(wave, province) |> 
+  summarise(cases = sum(cases), .groups = "drop") |> 
+  left_join(provinces_population, by = "province") |> 
+  mutate(cases_100k = 100000 * cases / population, .keep = "unused") |> 
+  mutate(
+    cases_groups_jenks = cut(
+        cases_100k, breaks = BAMMtools::getJenksBreaks(cases_100k, k = 5), 
+        include.lowest = TRUE, dig.lab = 5
+      ), 
+    cases_groups_quantile = cut(
+        cases_100k, breaks = quantile(cases_100k), include.lowest = TRUE, 
+        dig.lab = 5
+      ), .keep = "unused"
+  )
+```
+
+```{r}
+provinces_waves_groups_sf = provinces_waves_groups |> 
+  left_join(provinces_sf, by = "province") |> 
+  st_as_sf()
+```
+
+```{r}
+map_groups_colors = 
+  scales::seq_gradient_pal("#0072B533", "#0072B5FF", "Lab")(seq(0, 1, length.out = 4))
+```
+
+```{r}
+provinces_waves_groups_jenks_plot =  ggplot(provinces_waves_groups_sf) + 
+  facet_wrap(~ wave, ncol = 3) + 
+  geom_sf(aes(fill = cases_groups_jenks)) +
+  scale_fill_manual(values = map_groups_colors) +
+  theme_void() +
+  theme(legend.position = "right") +
+  labs(
+    fill = "Cases per 100,000 pop.", 
+    title = "Cumulative COVID-19 positive cases by province in every epidemic wave",
+    subtitle = "EW 12, 2020 to EW 17, 2023",
+    caption = "Source: Plataforma Nacional de Datos Abiertos"
+  ) 
+
+provinces_waves_groups_jenks_plot
+```
+
+```{r}
+#| eval: false 
+ggsave(
+  "figures/provinces_waves_groups_jenks_plot.png", provinces_waves_groups_jenks_plot, width = 8, height = 7
+)
+```
+
+```{r}
+provinces_waves_groups_quantile_plot =  ggplot(provinces_waves_groups_sf) + 
+  facet_wrap(~ wave, ncol = 3) + 
+  geom_sf(aes(fill = cases_groups_quantile)) +
+  scale_fill_manual(values = map_groups_colors) +
+  theme_void() +
+  theme(legend.position = "right") +
+  labs(
+    fill = "Cases per 100,000 pop.", 
+    title = "Cumulative COVID-19 positive cases by province in every epidemic wave",
+    subtitle = "EW 12, 2020 to EW 17, 2023",
+    caption = "Source: Plataforma Nacional de Datos Abiertos"
+  ) 
+
+provinces_waves_groups_quantile_plot
+```
+
+```{r}
+#| eval: false 
+ggsave(
+  "figures/provinces_waves_groups_quantile_plot.png", 
+  provinces_waves_groups_quantile_plot, width = 8, height = 7
+)
+```
+
+## Plot C
+
+## Plot D
+
+```{r}
+cases_department = cases |> 
+  left_join(districts, by = "ubigeo") |> 
+  group_by(department, week_start) |> 
+  summarise(cases = sum(cases), .groups = "drop")
+```
+
+```{r}
+deaths_department = deaths |> 
+  left_join(districts, by = "ubigeo") |> 
+  group_by(department, week_start) |> 
+  summarise(deaths = sum(deaths), .groups = "drop")
+```
+
+```{r}
+# vaccinations_department = vaccinations |> 
+#   group_by(department, week_start) |> 
+#   summarise(vacc = sum(vacc), .groups = "drop") |> 
+#   mutate(
+#     department = stringi::stri_trans_general(department, id = "Latin-ASCII")
+#   ) |> 
+#   mutate(department = ifelse(department == "NAZCA", "NASCA", department))
+```
+
+```{r}
+department_vars = cases_department |> 
+  inner_join(deaths_department, by = c("department", "week_start")) |> 
+  # left_join(vaccinations_department, by = c("department", "week_start")) |> 
+  group_by(department) |> 
+  summarise(
+    cases = mean(cases, na.rm = TRUE),
+    deaths = mean(deaths, na.rm = TRUE)
+    # vacc = mean(vacc, na.rm = TRUE)
+  )
+```
+
+```{r}
+department_rates = department_vars |> 
+  inner_join(departments, by = "department") |> 
+  mutate(
+    across(cases:deaths, \(x) x / population), .keep = "unused"
+  ) 
+  # tibble::column_to_rownames(var = "department")
+```
+
+```{r}
+# library(corrplot)
+# corr_matrix = cor(t(department_rates))
+# corrplot(corr_matrix)
+```
+
+## Supplementary A
+
+```{r}
+department_weekly_counts = cases_department |> 
+  inner_join(deaths_department, by = c("department", "week_start")) 
+  # left_join(vaccinations_department, by = c("department", "week_start"))
+```
+
+```{r}
+department_weekly_rates = department_weekly_counts |> 
+  inner_join(departments, by = "department") |> 
+  mutate(across(cases:deaths, \(x) 100000 * x / population), .keep = "unused")
+```
+
+```{r}
+department_weekly_rates |> 
+  ggplot(aes(department, week_start, fill = cases)) +
+  geom_tile() +
+  coord_flip()
+```
+
+```{r}
+heatmap_dep_week = department_weekly_rates |> 
+  ggplot(aes(department, week_start, fill = cases)) +
+  geom_tile() +
+  coord_flip() +
+  scale_y_date(date_breaks = "5 months", date_labels = "%b, %Y", expand = c(0, 0)) +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_fill_gradient(n.breaks = 4) +
+  labs(
+    y = "Epidemiological Week", x = "Departments", 
+    fill = "Positive cases\nper 100,000 pop.",
+    title = "Weekly COVID-19 positive cases by department",
+    subtitle = "EW 18, 2020 to EW 17, 2023",
+    caption = "Source: Plataforma Nacional de Datos Abiertos"
+  ) +
+  theme(
+    legend.position = "top",
+    panel.background = element_rect(fill = "transparent"),
+    plot.background = element_rect(fill = "transparent", color = NA),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.background = element_rect(fill = "transparent")
+  )
+
+heatmap_dep_week
+```
+
+```{r}
+ggsave(
+  "figures/heatmap_dep_week.png", heatmap_dep_week, height = 6, width = 9, 
+  bg = "transparent"
+)
+```
+
+```{r}
+department_weekly_rates |> 
+  ggplot(aes(department, week_start, fill = cases)) +
+  geom_tile() +
+  coord_flip() +
+  scale_fill_continuous(trans = "log1p")
+```
+
+```{r}
+heatmap_dep_week_log1p = department_weekly_rates |> 
+  ggplot(aes(department, week_start, fill = cases)) +
+  geom_tile() +
+  coord_flip() +
+  scale_y_date(date_breaks = "5 months", date_labels = "%b, %Y", expand = c(0, 0)) +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_fill_gradient(n.breaks = 4, trans = "log1p") +
+  labs(
+    y = "Epidemiological Week", x = "Departments", 
+    fill = "Positive cases\nper 100,000 pop.",
+    title = "Weekly COVID-19 positive cases by department",
+    subtitle = "EW 18, 2020 to EW 17, 2023",
+    caption = "Source: Plataforma Nacional de Datos Abiertos"
+  ) +
+  theme(
+    legend.position = "top",
+    panel.background = element_rect(fill = "transparent"),
+    plot.background = element_rect(fill = "transparent", color = NA),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.background = element_rect(fill = "transparent")
+  )
+
+heatmap_dep_week_log1p
+```
+
+```{r}
+ggsave(
+  "figures/heatmap_dep_week_log1p.png", heatmap_dep_week_log1p, height = 6, width = 9, 
+  bg = "transparent"
+)
+```
+
+```{r}
+dep_weekly_rates_classes = department_weekly_rates |> 
+  mutate(
+    across(
+      cases:deaths, 
+      \(x) cut(
+        x, breaks = cartography::getBreaks(x, nclass = 4, method = "quantile"), include.lowest = TRUE,
+        dig.lab = 5
+      ),
+      .names = "{.col}_quantile"
+    ),
+    across(
+      cases:deaths, 
+      \(x) cut(
+        x, breaks = cartography::getBreaks(x, nclass = 4, method = "kmeans"), include.lowest = TRUE,
+        dig.lab = 5
+      ),
+      .names = "{.col}_kmeans"
+    ),
+    across(
+      cases:deaths, 
+      \(x) cut(
+        x, breaks = cartography::getBreaks(x, nclass = 4, method = "bclust"), include.lowest = TRUE,
+        dig.lab = 5
+      ),
+      .names = "{.col}_bclust"
+    ),
+    across(
+      cases:deaths, 
+      \(x) cut(
+        x, breaks = cartography::getBreaks(x, nclass = 4, method = "fisher"), include.lowest = TRUE,
+        dig.lab = 5
+      ),
+      .names = "{.col}_fisher"
+    ),
+    across(
+      cases:deaths, 
+      \(x) cut(
+        x, breaks = cartography::getBreaks(x, nclass = 4, method = "geom"), include.lowest = TRUE,
+        dig.lab = 5
+      ),
+      .names = "{.col}_geom"
+    ),
+    across(
+      cases:deaths, 
+      \(x) cut(
+        x, breaks = cartography::getBreaks(x, nclass = 4, method = "arith"), include.lowest = TRUE,
+        dig.lab = 5
+      ),
+      .names = "{.col}_arith"
+    ),
+    across(
+      cases:deaths, 
+      \(x) cut(
+        x, breaks = cartography::getBreaks(x, nclass = 4, method = "em"), include.lowest = TRUE,
+        dig.lab = 5
+      ),
+      .names = "{.col}_em"
+    ),
+    .keep = "unused"
+  )
+```
+
+```{r}
+dep_weekly_rates_classes |> 
+  ggplot(aes(department, week_start, fill = cases_quantile)) +
+  geom_tile() +
+  coord_flip()
+```
+
+```{r}
+dep_weekly_rates_classes |> 
+  ggplot(aes(department, week_start, fill = cases_kmeans)) +
+  geom_tile() +
+  coord_flip()
+```
+
+
+```{r}
+dep_weekly_rates_classes |> 
+  ggplot(aes(department, week_start, fill = cases_bclust)) +
+  geom_tile() +
+  coord_flip()
+```
+
+```{r}
+dep_weekly_rates_classes |> 
+  ggplot(aes(department, week_start, fill = cases_fisher)) +
+  geom_tile() +
+  coord_flip()
+```
+
+```{r}
+dep_weekly_rates_classes |> 
+  ggplot(aes(department, week_start, fill = cases_geom)) +
+  geom_tile() +
+  coord_flip()
+```
+
+```{r}
+dep_weekly_rates_classes |> 
+  ggplot(aes(department, week_start, fill = cases_arith)) +
+  geom_tile() +
+  coord_flip()
+```
+
+```{r}
+dep_weekly_rates_classes |> 
+  ggplot(aes(department, week_start, fill = cases_em)) +
+  geom_tile() +
+  coord_flip()
+```
+
+```{r}
+heatmap_dep_week_classes = dep_weekly_rates_classes |> 
+  ggplot(aes(department, week_start, fill = cases_em)) +
+  geom_tile() +
+  coord_flip() +
+  scale_y_date(date_breaks = "5 months", date_labels = "%b, %Y", expand = c(0, 0)) +
+  scale_x_discrete(expand = c(0, 0)) +
+  # scale_fill_manual(values = heatmap_groups_colors) +
+  scale_fill_brewer(palette = "OrRd") +
+  labs(
+    y = "Epidemiological Week", x = "Departments", 
+    fill = "Positive cases\nper 100,000 pop.",
+    title = "Weekly COVID-19 incidence by department",
+    subtitle = "EW 10, 2020 to EW 03, 2024"
+    # caption = "Source: Plataforma Nacional de Datos Abiertos"
+  ) +
+  theme(
+    legend.position = "top",
+    panel.background = element_rect(fill = "transparent"),
+    plot.background = element_rect(fill = "transparent", color = NA),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.background = element_rect(fill = "transparent")
+  )
+
+heatmap_dep_week_classes
+```
+
+```{r}
+ggsave(
+  "figures/heatmap_dep_week_classes.png", heatmap_dep_week_classes, 
+  height = 6, width = 9, bg = "transparent"
+)
+```
+
+```{r}
+library(patchwork)
+```
+
+```{r fig.height=11, fig.width=15}
+weekly_plot / (provinces_rates_bivariate_map_plot + heatmap_dep_week_classes)
+```
+
+```{r}
+ggsave("figures/panel.png", height = 14, width = 16, bg = "transparent")
+```
+
+
+## Supplementary B
+
+### Provinces
+
+### Departments
+
+```{r}
+departments_waves = cases |> 
+  inner_join(deaths, by = c("ubigeo", "week_start")) |> 
+  mutate(
+    wave = case_when(
+      between(
+        week_start, as.Date(min(week_start)), as.Date("2020-12-20")
+      ) ~ "1st wave",
+      between(
+        week_start, as.Date("2020-12-27"), as.Date("2021-12-12")
+      ) ~ "2nd wave",
+      between(
+        week_start, as.Date("2021-12-19"), as.Date("2022-06-05")
+      ) ~ "3th wave",
+      between(
+        week_start, as.Date("2022-06-12"), as.Date("2022-10-23")
+      ) ~ "4th wave",
+      between(
+        week_start, as.Date("2022-10-30"), as.Date(max(week_start))
+      ) ~ "5th wave"
+    )
+  ) |> 
+  mutate(
+    wave = factor(
+      wave, levels = c("1st wave", "2nd wave", "3th wave", "4th wave", "5th wave")
+    )
+  ) |> 
+  left_join(districts, by = "ubigeo") |> 
+  group_by(wave, department) |> 
+  summarise(cases = sum(cases), deaths = sum(deaths), .groups = "drop") |> 
+  left_join(departments, by = "department") |> 
+  mutate(across(cases:deaths, \(x) 100000 * x / population), .keep = "unused")
+```
+
+```{r}
+departments_waves_bivariate_jenks = bi_class(
+  departments_waves, x = cases, y = deaths, style = "jenks", dim = 3
+)
+```
+
+```{r}
+departments_waves_bivariate_jenks_sf = departments_waves_bivariate_jenks |> 
+  left_join(departments_poly, by = "department") |> 
+  st_as_sf()
+```
+
+```{r}
+departments_waves_bivariate_jenks_map = departments_waves_bivariate_jenks_sf |> 
+  ggplot() + 
+  facet_wrap(~ wave, ncol = 3) + 
+  geom_sf(aes(fill = bi_class), show.legend = FALSE) +
+  bi_scale_fill(pal = "GrPink", dim = 3) +
+  theme_void() +
+  labs(
+    fill = "Cases per 100,000 pop.", 
+    title = "Cumulative COVID-19 positive cases by department\nin every epidemic wave",
+    subtitle = "EW 12, 2020 to EW 17, 2023",
+    caption = "Source: Plataforma Nacional de Datos Abiertos"
+  )
+
+departments_waves_bivariate_jenks_map
+```
+
+```{r}
+departments_waves_bivariate_jenks_plot = ggdraw() +
+  draw_plot(departments_waves_bivariate_jenks_map) +
+  draw_plot(legend_bivariate, 0.65, 0.12, 0.25, 0.25)
+
+departments_waves_bivariate_jenks_plot
+```
+
+```{r}
+ggsave(
+  "figures/departments_waves_bivariate_jenks_plot.png",
+  departments_waves_bivariate_jenks_plot, 
+  width = 8, height = 7, bg = "transparent"
+)
+```
+
+```{r}
+departments_waves_bivariate_quantile = bi_class(
+  departments_waves, x = cases, y = deaths, style = "quantile", dim = 3
+)
+```
+
+```{r}
+departments_waves_bivariate_quantile_sf = departments_waves_bivariate_quantile |> 
+  left_join(departments_poly, by = "department") |> 
+  st_as_sf()
+```
+
+```{r}
+departments_waves_bivariate_quantile_map = departments_waves_bivariate_quantile_sf |> 
+  ggplot() + 
+  facet_wrap(~ wave, ncol = 3) + 
+  geom_sf(aes(fill = bi_class), show.legend = FALSE) +
+  bi_scale_fill(pal = "GrPink", dim = 3) +
+  theme_void() +
+  labs(
+    fill = "Cases per 100,000 pop.", 
+    title = "Cumulative COVID-19 positive cases by department\nin every epidemic wave",
+    subtitle = "EW 12, 2020 to EW 17, 2023",
+    caption = "Source: Plataforma Nacional de Datos Abiertos"
+  )
+
+departments_waves_bivariate_quantile_map
+```
+
+```{r}
+departments_waves_bivariate_quantile_plot = ggdraw() +
+  draw_plot(departments_waves_bivariate_quantile_map) +
+  draw_plot(legend_bivariate, 0.65, 0.12, 0.25, 0.25)
+
+departments_waves_bivariate_quantile_plot
+```
+
+```{r}
+ggsave(
+  "figures/departments_waves_bivariate_quantile_plot.png",
+  departments_waves_bivariate_quantile_plot, 
+  width = 8, height = 7, bg = "transparent"
+)
+```
+
