@@ -3,16 +3,6 @@ library(tidyr)
 
 input_path <- "data/raw/fallecidos_covid-20240208.csv"
 
-# deaths_raw <- readr::read_delim(input_path, delim = ";", col_types = "cciccccccc")
-# names(deaths_raw) <- tolower(names(deaths_raw))
-# deaths <- deaths_raw |>
-#   drop_na(ubigeo, fecha_fallecimiento, uuid) |>
-#   filter(between(edad_declarada, 0, 123)) |>
-#   mutate(death_date = lubridate::ymd(fecha_fallecimiento), .keep = "unused") |>
-#   distinct(
-#     death_date, edad_declarada, sexo, ubigeo, uuid, .keep_all = TRUE
-#   )
-
 deaths_raw <- readr::read_delim(input_path, delim = ";", col_types = "cciccccccc")
 names(deaths_raw) <- tolower(names(deaths_raw))
 deaths <- deaths_raw |>
@@ -55,5 +45,5 @@ weekly_deaths <- daily_deaths |>
   group_by(ubigeo, week_start) |>
   summarise(deaths = sum(deaths), .groups = "drop")
 
-output_path <- "data/interim/weekly/deaths.csv"
+output_path <- "data/processed/deaths.csv"
 readr::write_csv(weekly_deaths, output_path)

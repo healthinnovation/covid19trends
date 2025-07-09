@@ -47,6 +47,6 @@ weekly_cases <- daily_cases |>
   group_by(ubigeo, week_start) |>
   summarise(cases = sum(cases), .groups = "drop")
 
-output_path <- "data/interim/weekly/cases.csv"
+output_path <- "data/processed/cases.csv"
 readr::write_csv(weekly_cases, output_path)
 
