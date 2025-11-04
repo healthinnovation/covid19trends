@@ -48,7 +48,4 @@ po/*~
 # RStudio Connect folder
 rsconnect/
 
-# Data
-*.rar
-*.zip
-*.html
+
