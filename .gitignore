@@ -49,10 +49,6 @@ po/*~
 rsconnect/
 
 # Data
-data/raw/
-data/interim/
-
 *.rar
 *.zip
-
 *.html

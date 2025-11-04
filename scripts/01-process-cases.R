@@ -19,7 +19,8 @@ cases <- cases_raw |>
 # Algunas personas presentan prueba positiva en menos de 6 meses, según el id_persona
 
 ubigeo <- readr::read_csv(
-  "data/raw/population.csv", col_select = ubigeo, col_types = "c") |>
+  "data/interim/population_2018-2022.csv", col_select = ubigeo, col_types = "c"
+) |>
   pull() |>
   unique()
 

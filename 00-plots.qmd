@@ -92,6 +92,7 @@ library(sf)
 
 ```{r}
 data("Peru", package = "innovar")
+
 districts <- Peru |> 
   st_drop_geometry() |> 
   select(ubigeo, department = dep, province = prov, district = distr)
@@ -104,8 +105,11 @@ districts_counts <- cases |>
 ```
 
 ```{r}
-population_raw <- readr::read_csv("data/raw/population.csv", col_types = "cii")
-population = population_raw |> 
+population_raw <- readr::read_csv(
+  "data/interim/population_2018-2022.csv", col_types = "cid"
+)
+
+population <- population_raw |> 
   filter(year == 2020) |> 
   select(-year)
 ```
@@ -238,49 +242,41 @@ department_rates_weekly <- department_weekly_counts |>
 dep_rates_weekly_class <- department_rates_weekly |> 
   mutate(
     across(
-      cases:deaths, 
+      cases:deaths,
       \(x) cut(
-        x, breaks = cartography::getBreaks(x, nclass = 4, method = "quantile"), 
+        x, breaks = cartography::getBreaks(x, nclass = 4, method = "quantile"),
         include.lowest = TRUE, dig.lab = 5
       ),
       .names = "{.col}_quantile"
     ),
     across(
-      cases:deaths, 
+      cases:deaths,
       \(x) cut(
-        x, breaks = cartography::getBreaks(x, nclass = 4, method = "kmeans"), 
+        x, breaks = cartography::getBreaks(x, nclass = 4, method = "kmeans"),
         include.lowest = TRUE, dig.lab = 5
       ),
       .names = "{.col}_kmeans"
     ),
     across(
-      cases:deaths, 
+      cases:deaths,
       \(x) cut(
-        x, breaks = cartography::getBreaks(x, nclass = 4, method = "bclust"), 
-        include.lowest = TRUE, dig.lab = 5
-      ),
-      .names = "{.col}_bclust"
-    ),
-    across(
-      cases:deaths, 
-      \(x) cut(
-        x, breaks = cartography::getBreaks(x, nclass = 4, method = "fisher"), 
+        x, breaks = cartography::getBreaks(x, nclass = 4, method = "fisher"),
         include.lowest = TRUE, dig.lab = 5
       ),
       .names = "{.col}_fisher"
     ),
     across(
-      cases:deaths, 
+      cases:deaths,
       \(x) cut(
-        x, breaks = cartography::getBreaks(x, nclass = 4, method = "geom"), 
+        x, breaks = cartography::getBreaks(x, nclass = 4, method = "geom"),
         include.lowest = TRUE, dig.lab = 5
       ),
       .names = "{.col}_geom"
     ),
     across(
-      cases:deaths, 
+      cases:deaths,
       \(x) cut(
-        x, breaks = cartography::getBreaks(x, nclass = 4, method = "arith"), 
+        x, breaks = cartography::getBreaks(x, nclass = 4, method = "arith"),
         include.lowest = TRUE, dig.lab = 5
       ),
       .names = "{.col}_arith"
